@@ -201,7 +201,12 @@ func (scope *EvalScope) EvalExpression(expr string, cfg LoadConfig) (*Variable, 
 
 	scope.loadCfg = &cfg
 
-	ev, err := scope.evalAST(t)
+	var ev *Variable
+	if sliceExpr := findSliceExpansion(t); sliceExpr != nil {
+		ev, err = scope.evalSliceExpansion(t, sliceExpr)
+	} else {
+		ev, err = scope.evalAST(t)
+	}
 	if err != nil {
 		scope.callCtx.doReturn(nil, err)
 		return nil, err
@@ -701,6 +706,35 @@ func (scope *EvalScope) image() *Image {
 	return scope.BinInfo.funcToImage(scope.Fn)
 }
 
+func findSliceExpansion(node ast.Node) *ast.SelectorExpr {
+	// look for the following patterns:
+	//  foo[bar:baz].<field>
+	//  foo[bar:baz].Func()
+	// neither of which are valid Go syntax - if these are found, then rewrite
+	// the AST to either:
+	//  []T{ foo[bar:baz][0].<field>, foo[bar:baz][1].<field>, ... }
+	//  []T{ foo[bar:baz][0].Func(), foo[bar:baz][1].Func(), ...}
+
+	var exp *ast.SelectorExpr
+	ast.Inspect(node, func(n ast.Node) bool {
+		if exp != nil || n == nil {
+			return false
+		}
+		selectorExpr, ok := n.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if _, ok := selectorExpr.X.(*ast.SliceExpr); ok {
+			if selectorExpr.Sel != nil {
+				exp = selectorExpr
+				return false
+			}
+		}
+		return true
+	})
+	return exp
+}
+
 func (scope *EvalScope) evalAST(t ast.Expr) (*Variable, error) {
 	switch node := t.(type) {
 	case *ast.CallExpr:
@@ -786,6 +820,73 @@ func (scope *EvalScope) evalAST(t ast.Expr) (*Variable, error) {
 		return nil, fmt.Errorf("expression %T not implemented", t)
 
 	}
+}
+
+func (scope *EvalScope) evalSliceExpansion(expr ast.Expr, exp *ast.SelectorExpr) (*Variable, error) {
+	sliceExpr := exp.X.(*ast.SliceExpr)
+
+	slice, err := scope.evalAST(sliceExpr)
+	if err != nil {
+		return nil, err
+	}
+
+	children := make([]Variable, 0, int(slice.Len))
+
+	var low, high int64
+
+	if sliceExpr.Low != nil {
+		lowv, err := scope.evalAST(sliceExpr.Low)
+		if err != nil {
+			return nil, err
+		}
+		low, err = lowv.asInt()
+		if err != nil {
+			return nil, fmt.Errorf("can not convert %q to int: %v", exprToString(sliceExpr.Low), err)
+		}
+	}
+
+	if sliceExpr.High == nil {
+		high = low + slice.Len
+	} else {
+		highv, err := scope.evalAST(sliceExpr.High)
+		if err != nil {
+			return nil, err
+		}
+		high, err = highv.asInt()
+		if err != nil {
+			return nil, fmt.Errorf("can not convert %q to int: %v", exprToString(sliceExpr.High), err)
+		}
+	}
+
+	for i := low; i < high; i++ {
+		// for each element, synthesize the corresponding slice access from the original slice expression
+		exp.X = &ast.IndexExpr{
+			X: sliceExpr.X,
+			Index: &ast.BasicLit{
+				Kind:  token.INT,
+				Value: strconv.FormatInt(i, 10),
+			},
+		}
+
+		elem, err := scope.evalAST(expr)
+		if err != nil {
+			return nil, err
+		}
+		elem.loadValue(*scope.loadCfg)
+		children = append(children, *elem)
+	}
+	if len(children) == 0 {
+		return nil, fmt.Errorf("slice %s has no elements", exprToString(sliceExpr))
+	}
+	// put all the results in a new fake slice variable
+	container := newVariable("", 0, &godwarf.SliceType{ElemType: children[0].RealType}, scope.BinInfo, scope.Mem)
+	container.Children = children
+	container.Len = slice.Len
+	container.Cap = slice.Len
+	container.Flags = slice.Flags
+	container.Base = slice.Base
+	container.loaded = true
+	return container, nil
 }
 
 func exprToString(t ast.Expr) string {
@@ -1457,7 +1558,6 @@ func (scope *EvalScope) evalStructSelector(node *ast.SelectorExpr) (*Variable, e
 	if err != nil {
 		return nil, err
 	}
-
 	// Prevent abuse, attempting to call "nil.member" directly.
 	if xv.Addr == 0 && xv.Name == "nil" {
 		return nil, fmt.Errorf("%s (type %s) is not a struct", xv.Name, xv.TypeString())

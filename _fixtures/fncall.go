@@ -65,6 +65,14 @@ type a2struct struct {
 	Y int
 }
 
+type astructWrapper struct {
+	A astruct
+}
+
+func (a astructWrapper) Get() astruct {
+	return a.A
+}
+
 func (a astruct) VRcvr(x int) string {
 	return fmt.Sprintf("%d + %d = %d", x, a.X, x+a.X)
 }
@@ -215,6 +223,16 @@ func main() {
 	comma := ","
 	a := astruct{X: 3}
 	pa := &astruct{X: 6}
+	sla := []astruct{
+		{X: 1},
+		{X: 2},
+		{X: 3},
+	}
+	slaw := []astructWrapper{
+		{A: astruct{X: 1}},
+		{A: astruct{X: 2}},
+		{A: astruct{X: 3}},
+	}
 	a2 := a2struct{Y: 7}
 	var pa2 *astruct
 	var str string = "old string value"
@@ -253,6 +271,9 @@ func main() {
 	strings.LastIndexByte(stringslice[1], 'w')
 	d.Method()
 	d.Base.Method()
+	astructWrapper{}.Get()
 	x.CallMe()
+	sla = sla
+	slaw = slaw
 	fmt.Println(one, two, zero, call, call0, call2, callexit, callpanic, callbreak, callstacktrace, stringsJoin, intslice, stringslice, comma, a.VRcvr, a.PRcvr, pa, vable_a, vable_pa, pable_pa, fn2clos, fn2glob, fn2valmeth, fn2ptrmeth, fn2nil, ga, escapeArg, a2, square, intcallpanic, onetwothree, curriedAdd, getAStruct, getAStructPtr, getVRcvrableFromAStruct, getPRcvrableFromAStructPtr, getVRcvrableFromAStructPtr, pa2, noreturncall, str, d, x, x2.CallMe(5), longstrs, regabistacktest, regabistacktest2, issue2698.String(), issue3364.String(), regabistacktest3, rast3, floatsum, ref)
 }

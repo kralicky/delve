@@ -1700,3 +1700,92 @@ func TestBadUnsafePtr(t *testing.T) {
 		}
 	})
 }
+
+func TestSliceExpansionFields(t *testing.T) {
+	var testcases = []testCaseCallFunction{
+		{
+			expr: "sla[:].X",
+			outs: []string{`:[]int:[]int len: 3, cap: 3, [1,2,3]`},
+		},
+		{
+			expr: "sla[1:].X",
+			outs: []string{`:[]int:[]int len: 2, cap: 2, [2,3]`},
+		},
+		{
+			expr: "sla[:2].X",
+			outs: []string{`:[]int:[]int len: 2, cap: 2, [1,2]`},
+		},
+		{
+			expr: "sla[1:2].X",
+			outs: []string{`:[]int:[]int len: 1, cap: 1, [2]`},
+		},
+	}
+
+	withTestProcess("fncall", t, func(p *proc.Target, grp *proc.TargetGroup, fixture protest.Fixture) {
+		testCallFunctionSetBreakpoint(t, p, grp, fixture)
+
+		assertNoError(grp.Continue(), t, "Continue()")
+		for _, tc := range testcases {
+			testCallFunction(t, grp, p, tc)
+		}
+	})
+}
+
+func TestSliceExpansionCall(t *testing.T) {
+	var testcases = []testCaseCallFunction{
+		{
+			expr: "sla[:].VRcvr(1)",
+			outs: []string{`:[]string:[]string len: 3, cap: 3, ["1 + 1 = 2","1 + 2 = 3","1 + 3 = 4"]`},
+		},
+		{
+			expr: "sla[1:].VRcvr(2)",
+			outs: []string{`:[]string:[]string len: 2, cap: 2, ["2 + 2 = 4","2 + 3 = 5"]`},
+		},
+		{
+			expr: "sla[:2].VRcvr(3)",
+			outs: []string{`:[]string:[]string len: 2, cap: 2, ["3 + 1 = 4","3 + 2 = 5"]`},
+		},
+		{
+			expr: "sla[1:2].VRcvr(4)",
+			outs: []string{`:[]string:[]string len: 1, cap: 1, ["4 + 2 = 6"]`},
+		},
+	}
+
+	withTestProcess("fncall", t, func(p *proc.Target, grp *proc.TargetGroup, fixture protest.Fixture) {
+		testCallFunctionSetBreakpoint(t, p, grp, fixture)
+
+		assertNoError(grp.Continue(), t, "Continue()")
+		for _, tc := range testcases {
+			testCallFunction(t, grp, p, tc)
+		}
+	})
+}
+
+func TestSliceExpansionNestedCall(t *testing.T) {
+	var testcases = []testCaseCallFunction{
+		{
+			expr: "slaw[:].Get().VRcvr(1)",
+			outs: []string{`:[]string:[]string len: 3, cap: 3, ["1 + 1 = 2","1 + 2 = 3","1 + 3 = 4"]`},
+		},
+		{
+			expr: "slaw[1:].Get().VRcvr(2)",
+			outs: []string{`:[]string:[]string len: 2, cap: 2, ["2 + 2 = 4","2 + 3 = 5"]`},
+		},
+		{
+			expr: "slaw[:2].Get().VRcvr(3)",
+			outs: []string{`:[]string:[]string len: 2, cap: 2, ["3 + 1 = 4","3 + 2 = 5"]`},
+		},
+		{
+			expr: "slaw[1:2].Get().VRcvr(4)",
+			outs: []string{`:[]string:[]string len: 1, cap: 1, ["4 + 2 = 6"]`},
+		},
+	}
+	withTestProcess("fncall", t, func(p *proc.Target, grp *proc.TargetGroup, fixture protest.Fixture) {
+		testCallFunctionSetBreakpoint(t, p, grp, fixture)
+
+		assertNoError(grp.Continue(), t, "Continue()")
+		for _, tc := range testcases {
+			testCallFunction(t, grp, p, tc)
+		}
+	})
+}
